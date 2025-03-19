@@ -1,92 +1,113 @@
+# Load required packages
 library(tidyverse)
 library(ggplot2)
 library(lme4)
 library(lmerTest)
 library(car)
 
-# file path
-df <- read.csv('C:/Users/hp/Desktop/conv/UCRSNL/emp_convo/a_affectR/affect3d_data.csv')
+# Read and clean data
+df <- read.csv('data/psyc259_finalproject_data.csv')
 
-# remove missing values
+# Remove rows with missing values
+original_length <- nrow(df)
 df <- na.omit(df)
+cat("rows dropped: ", original_length - nrow(df), "\n")
 
-# create participant ID
+# Create a participant ID by combining transcript and speaker
 df$participant_id <- paste(df$transcript, df$speaker, sep = "_")
 
-# scale variables
-df$rationality <- scale(df$rationality)
-df$social_impact <- scale(df$social_impact)
-df$valence <- scale(df$valence)
+# Scale predictors of interest
+df$rationality_scaled <- scale(df$rationality)
+df$social_impact_scaled <- scale(df$social_impact)
+df$valence_scaled <- scale(df$valence)
 
-# compute correlation matrix
-correlation_matrix <- cor(df[,c('rationality', 'social_impact', 'valence')])
+# Compute correlation among predictors of interest
+correlation_matrix <- cor(df[,c('rationality_scaled', 'social_impact_scaled', 'valence_scaled')])
 print(correlation_matrix)
 
-# plot distributions
-ggplot(df, aes(x = rationality)) +
-  geom_histogram(aes(fill = condition), bins = 30, alpha = 0.5) +
-  geom_density(alpha = 0.7) +
-  facet_wrap(~condition) +
-  labs(title = "Distribution of Rationality by Condition", x = "Rationality", y = "Density") +
-  theme_minimal()
+# Plot distributions by condition
+for (col in c("rationality_scaled", "social_impact_scaled", "valence_scaled")) {
+  p <- ggplot(df, aes_string(x = col, fill = "condition")) +
+    geom_histogram(bins = 30, alpha = 0.5, position = "identity") +
+    geom_density(aes(y = ..density..), alpha = 0.7) +
+    facet_wrap(~ condition) +
+    labs(
+      title = paste("distribution of", col, "by condition"),
+      x = col,
+      y = "density"
+    ) +
+    theme_minimal()
+  
+  print(p)
+}
 
-ggplot(df, aes(x = social_impact)) +
-  geom_histogram(aes(fill = condition), bins = 30, alpha = 0.5) +
-  geom_density(alpha = 0.7) +
-  facet_wrap(~condition) +
-  labs(title = "Distribution of Social Impact by Condition", x = "Social Impact", y = "Density") +
-  theme_minimal()
+# Function to fit multilevel models
+# 1) Encodes the empathy condition as a binary variable
+# 2) Fits a random-intercept model by participant_id
+# 3) Prints the model summary
+fit_multilevel_model <- function(df, dependent_var) {
+  
+  # Convert participant_id to factor
+  df <- df %>%
+    mutate(
+      participant_id     = factor(participant_id),
+      empathy_condition  = ifelse(condition == "empathy", 1, 0)
+    )
+  model_formula <- as.formula(paste(dependent_var, "~ empathy_condition + (1|participant_id)"))
+  model <- lmer(model_formula, data = df)
+  
+  cat("Model for:", dependent_var, "\n")
+  print(summary(model))
+  
+  return(model)
+}
 
-ggplot(df, aes(x = valence)) +
-  geom_histogram(aes(fill = condition), bins = 30, alpha = 0.5) +
-  geom_density(alpha = 0.7) +
-  facet_wrap(~condition) +
-  labs(title = "Distribution of Valence by Condition", x = "Valence", y = "Density") +
-  theme_minimal()
+# Function for residual diagnostics
+# 1) Creates histograms of residuals
+# 2) Creates Q-Q plots
+# 3) Plots residuals vs. fitted values
+analyze_residuals <- function(df, dependent_var, model) {
+  
+  # Extract residuals and fitted values
+  residuals_df <- data.frame(
+    residuals    = residuals(model),
+    fitted_values = fitted(model)
+  )
+  
+  # Histogram of residuals
+  p1 <- ggplot(residuals_df, aes(x = residuals)) +
+    geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5) +
+    geom_density(alpha = 0.7) +
+    labs(
+      title = paste("Histogram of Residuals (", dependent_var, ")"),
+      x = "Residuals",
+      y = "Density"
+    ) +
+    theme_minimal()
+  print(p1)
+  
+  # Q-Q Plot of residuals
+  qqPlot(residuals(model), main = paste("Q-Q Plot of Residuals (", dependent_var, ")"))
+  
+  # Residuals vs Fitted Values
+  p2 <- ggplot(residuals_df, aes(x = fitted_values, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    labs(
+      title = paste("Residuals vs Fitted Values (", dependent_var, ")"),
+      x = "Fitted Values",
+      y = "Residuals"
+    ) +
+    theme_minimal()
+  print(p2)
+}
 
-# fit multilevel models for each variable
-df$empathy_condition <- ifelse(df$condition == 'empathy', 1, 0)
-
-model_rationality <- lmer(rationality ~ empathy_condition + (1|participant_id), data = df)
-summary(model_rationality)
-
-model_social_impact <- lmer(social_impact ~ empathy_condition + (1|participant_id), data = df)
-summary(model_social_impact)
-
-model_valence <- lmer(valence ~ empathy_condition + (1|participant_id), data = df)
-summary(model_valence)
-
-# residual analysis for each model
-residuals_rationality <- residuals(model_rationality)
-fitted_values_rationality <- fitted(model_rationality)
-
-ggplot(data.frame(residuals = residuals_rationality), aes(x = residuals)) +
-  geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5, fill = 'blue') +
-  geom_density(alpha = 0.7, color = 'black') +
-  labs(title = "Histogram of Residuals (Rationality)", x = "Residuals", y = "Density") +
-  theme_minimal()
-
-qqPlot(residuals_rationality, main = "Q-Q Plot of Residuals (Rationality)")
-
-ggplot(data.frame(residuals = residuals_rationality, fitted_values = fitted_values_rationality), aes(x = fitted_values, y = residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
-  labs(title = "Residuals vs Fitted Values (Rationality)", x = "Fitted Values", y = "Residuals") +
-  theme_minimal()
-
-# fixed effect visualization for each variable
-fixed_effect_rationality <- fixef(model_rationality)[2]
-ci_rationality <- confint(model_rationality)
-ci_low_rationality <- ci_rationality[2, 1]
-ci_high_rationality <- ci_rationality[2, 2]
-
-ggplot(data.frame(Condition = c('Empathy Condition'), 
-                  Effect = c(fixed_effect_rationality), 
-                  ymin = c(ci_low_rationality), 
-                  ymax = c(ci_high_rationality)), 
-       aes(x = Condition, y = Effect, ymin = ymin, ymax = ymax)) +
-  geom_bar(stat = "identity", fill = 'lightblue', color = 'black') +
-  geom_errorbar(width = 0.2, linewidth = 1) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
-  labs(title = "Mixed-effects Model Rationality Results for Empathy Condition", y = "Fixed Effect") +
-  theme_minimal()
+# Main loop: Fit each model and visualize diagnostics
+for (dependent_var in c("rationality", "social_impact", "valence")) {
+  
+  # Fit model
+  result <- fit_multilevel_model(df, dependent_var)
+  
+  # Residual diagnostics
+  analyze_residuals(df, dependent_var, result)
+}
