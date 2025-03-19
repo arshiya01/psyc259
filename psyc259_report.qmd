@@ -1,0 +1,398 @@
+---
+title: "psyc259_report"
+format: html
+editor: visual
+---
+
+# Introduction
+
+This project investigates how **rationality**, **social_impact**, and **valence** vary by experimental condition (empathy vs. control). The analysis includes:
+
+1.  **Data Preparation**: Importing and cleaning a dataset of conversation transcripts.
+
+2.  **Exploratory Data Analysis**: Visualizing distributions of key variables by condition.
+
+3.  **Multilevel Modeling**: Predicting each outcome with a random intercept for participants.
+
+4.  **Diagnostics**: Checking residuals via histograms, Q-Q plots, and fitted vs. residual plots.
+
+Below, I outline the original issues with the workflow (efficiency, fidelity, and reproducibility) and demonstrate the changes I made. Then, I present an example of results specifically for the valence variable.
+
+# Critique of the Original Workflow
+
+1.  **Hardcoded File Path**
+
+    -   The script used a direct file path (e.g., `C:/Users/hp/...`) which made sharing difficult and prevented others from running the code without editing paths.
+
+2.  **No Logging of Removed Data**
+
+    -   The script removed missing rows using `na.omit(df)` but did not track or report how many rows were dropped.
+
+3.  **Repetitive Code**
+
+    -   Multiple blocks of nearly identical code for plotting distributions of `rationality`, `social_impact`, and `valence`.
+
+    -   Separate code chunks for fitting each multilevel model and diagnosing residuals.
+
+4.  **Overwriting Original Variables**
+
+    -   The script scaled variables in-place (e.g., `df$rationality <- scale(df$rationality)`), which overwrote raw values.
+
+5.  **Lack of Modularity**
+
+    -   No use of functions to automate repeated tasks, making the script harder to maintain or expand.
+
+# Overview of Improvements
+
+To address these problems, I created a revised script that:
+
+1.  Uses a relative or flexible file path (`"data/psyc259_finalproject_data.csv"`) instead of a hardcoded directory.
+
+2.  Logs the number of dropped rows after `na.omit()`.
+
+3.  Creates new columns (`rationality_scaled`, `social_impact_scaled`, `valence_scaled`) instead of overwriting raw data.
+
+4.  Replaces repetitive code blocks with loops and custom functions for distribution plots, model fitting, and residual diagnostics.
+
+5.  Improves code readability and fosters reproducibility by structuring the script into functional components.
+
+**Demonstration of the before and after code snippets where appropriate:**
+
+## 1. Data Preparation
+
+### Before
+
+``` r
+df <- read.csv('C:/Users/hp/Desktop/conv/UCRSNL/emp_convo/a_affectR/affect3d_data.csv')
+
+df <- na.omit(df)
+
+df$participant_id <- paste(df$transcript, df$speaker, sep = "_")
+
+df$rationality <- scale(df$rationality)
+df$social_impact <- scale(df$social_impact)
+df$valence <- scale(df$valence)
+```
+
+#### **Issues**:
+
+-   Hardcoded file path.
+
+-   Removal of missing values without logging how many rows were lost.
+
+-   In-place scaling overwrote raw data.
+
+### After
+
+``` r
+# Read and clean data
+df <- read.csv('data/psyc259_finalproject_data.csv')
+
+# Remove rows with missing values
+original_length <- nrow(df)
+df <- na.omit(df)
+cat("rows dropped: ", original_length - nrow(df), "\n")
+
+# Create a participant ID by combining transcript and speaker
+df$participant_id <- paste(df$transcript, df$speaker, sep = "_")
+
+# Scale predictors of interest
+df$rationality_scaled <- scale(df$rationality)
+df$social_impact_scaled <- scale(df$social_impact)
+df$valence_scaled <- scale(df$valence)
+```
+
+#### Explanation of Improvements
+
+1.  **Relative File Path**: By storing the CSV in a subfolder (e.g., `data/`), anyone can clone this repository and run the script without changing the path.
+
+2.  **Logging Data Removal**: The script now prints how many rows are lost when applying `na.omit`.
+
+3.  **Retaining Raw Values**: I created new columns (`rationality_scaled`, etc.) so that original data remains intact, preventing any loss of fidelity.
+
+## 2. Exploratory Analysis
+
+### Before
+
+``` r
+ggplot(df, aes(x = rationality)) +
+  geom_histogram(aes(fill = condition), bins = 30, alpha = 0.5) +
+  geom_density(alpha = 0.7) +
+  facet_wrap(~condition) +
+  labs(title = "Distribution of Rationality by Condition", x = "Rationality", y = "Density") +
+  theme_minimal()
+```
+
+#### **Issue**: 
+
+Repetitive blocks of code for each of the three variables.
+
+### After
+
+``` relaxng
+for (col in c("rationality_scaled", "social_impact_scaled", "valence_scaled")) {
+  p <- ggplot(df, aes_string(x = col, fill = "condition")) +
+    geom_histogram(bins = 30, alpha = 0.5, position = "identity") +
+    geom_density(aes(y = ..density..), alpha = 0.7) +
+    facet_wrap(~ condition) +
+    labs(
+      title = paste("distribution of", col, "by condition"),
+      x = col,
+      y = "density"
+    ) +
+    theme_minimal()
+  
+  print(p)
+}
+```
+
+#### Explanation of Improvements
+
+-   **Function for Repetitive Plots**: By creating a single function, I eliminate repeated code blocks and ensure consistent plotting for each variable.
+
+-   **Reduced Code Duplication**: Makes future changes simpler (e.g., changing bin sizes or color) in one place.
+
+## 3. Statistical Modeling
+
+### Before
+
+``` r
+df$empathy_condition <- ifelse(df$condition == 'empathy', 1, 0)
+
+model_rationality <- lmer(rationality ~ empathy_condition + (1|participant_id), data = df)
+summary(model_rationality)
+
+model_social_impact <- lmer(social_impact ~ empathy_condition + (1|participant_id), data = df)
+summary(model_social_impact)
+
+model_valence <- lmer(valence ~ empathy_condition + (1|participant_id), data = df)
+summary(model_valence)
+```
+
+#### **Issue**: 
+
+Repetitive code to fit three separate models. The user must manually update each block for changes.
+
+### After
+
+``` r
+fit_multilevel_model <- function(df, dependent_var) {
+  
+  # Convert participant_id to factor
+  df <- df %>%
+    mutate(
+      participant_id     = factor(participant_id),
+      empathy_condition  = ifelse(condition == "empathy", 1, 0)
+    )
+  model_formula <- as.formula(paste(dependent_var, "~ empathy_condition + (1|participant_id)"))
+  model <- lmer(model_formula, data = df)
+  
+  cat("Model for:", dependent_var, "\n")
+  print(summary(model))
+  
+  return(model)
+}
+```
+
+#### Explanation of Improvements
+
+-   **Single Function to Fit an MLM**: This function handles the formula construction and returns the fitted model.
+
+-   **Modular Code**: Reusing the same logic for each outcome variable reduces the chance of typos or inconsistent model settings.
+
+## 4. Model Diagnostics & Visualization
+
+### Before
+
+``` r
+residuals_rationality <- residuals(model_rationality)
+fitted_values_rationality <- fitted(model_rationality)
+
+ggplot(data.frame(residuals = residuals_rationality), aes(x = residuals)) +
+  geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5) +
+  geom_density(alpha = 0.7)
+
+qqPlot(residuals_rationality, main = "Q-Q Plot (Rationality)")
+# ...
+```
+
+#### **Issue**: 
+
+Each diagnostic was manually repeated for all three outcomes, inflating the script size.
+
+### After
+
+``` r
+analyze_residuals <- function(df, dependent_var, model) {
+  
+  # Extract residuals and fitted values
+  residuals_df <- data.frame(
+    residuals    = residuals(model),
+    fitted_values = fitted(model)
+  )
+  
+  # Histogram of residuals
+  p1 <- ggplot(residuals_df, aes(x = residuals)) +
+    geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5) +
+    geom_density(alpha = 0.7) +
+    labs(
+      title = paste("Histogram of Residuals (", dependent_var, ")"),
+      x = "Residuals",
+      y = "Density"
+    ) +
+    theme_minimal()
+  print(p1)
+  
+  # Q-Q Plot of residuals
+  qqPlot(residuals(model), main = paste("Q-Q Plot of Residuals (", dependent_var, ")"))
+  
+  # Residuals vs Fitted Values
+  p2 <- ggplot(residuals_df, aes(x = fitted_values, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    labs(
+      title = paste("Residuals vs Fitted Values (", dependent_var, ")"),
+      x = "Fitted Values",
+      y = "Residuals"
+    ) +
+    theme_minimal()
+  print(p2)
+}
+```
+
+#### Explanation of Improvements
+
+-   **Single Function for Residual Diagnostics**: Eliminates repetitive code for each variable’s histogram, Q-Q plot, and residuals vs. fitted plot.
+
+-   **Automatic Model Input**: Just pass the data, fitted model, and variable name, and the function prints diagnostic plots.
+
+## Example Results: Valence
+
+Now that we’ve seen the before vs. after improvements, let’s look at sample results for the valence variable as an illustration.
+
+We can simply run:
+
+``` r
+# 1) Fit the multilevel model for valence
+fit_multilevel_model(df, valence_scaled)
+
+# 2) Perform residual diagnostics
+result <- fit_multilevel_model(df, valence_scaled)
+analyze_residuals(df, valence_scaled, result)
+```
+
+```{r}
+# Read and clean data
+df <- read.csv('data/psyc259_finalproject_data.csv')
+
+# Remove rows with missing values
+# original_length <- nrow(df)
+df <- na.omit(df)
+# cat("rows dropped: ", original_length - nrow(df), "\n")
+
+# Create a participant ID by combining transcript and speaker
+df$participant_id <- paste(df$transcript, df$speaker, sep = "_")
+
+# Scale predictors of interest
+df$rationality_scaled <- scale(df$rationality)
+df$social_impact_scaled <- scale(df$social_impact)
+df$valence_scaled <- scale(df$valence)
+
+# Compute correlation among predictors of interest
+# correlation_matrix <- cor(df[,c('rationality_scaled', 'social_impact_scaled', 'valence_scaled')])
+# print(correlation_matrix)
+
+# Plot distributions by condition
+# for (col in c("rationality_scaled", "social_impact_scaled", # "valence_scaled")) {
+#   p <- ggplot(df, aes_string(x = col, fill = "condition")) +
+#     geom_histogram(bins = 30, alpha = 0.5, position = "identity" ) +
+#     geom_density(aes(y = ..density..), alpha = 0.7) +
+#     facet_wrap(~ condition) +
+#     labs(
+#       title = paste("distribution of", col, "by condition"),
+#       x = col,
+#       y = "density"
+#     ) +
+#     theme_minimal()
+  
+#   print(p)
+# }
+
+# Function to fit multilevel models
+# 1) Encodes the empathy condition as a binary variable
+# 2) Fits a random-intercept model by participant_id
+# 3) Prints the model summary
+fit_multilevel_model <- function(df, dependent_var) {
+  
+  # Convert participant_id to factor
+  df <- df %>%
+    mutate(
+      participant_id     = factor(participant_id),
+      empathy_condition  = ifelse(condition == "empathy", 1, 0)
+    )
+  model_formula <- as.formula(paste(dependent_var, "~ empathy_condition + (1|participant_id)"))
+  model <- lmer(model_formula, data = df)
+  
+  cat("Model for:", dependent_var, "\n")
+  print(summary(model))
+  
+  return(model)
+}
+
+# Function for residual diagnostics
+# 1) Creates histograms of residuals
+# 2) Creates Q-Q plots
+# 3) Plots residuals vs. fitted values
+analyze_residuals <- function(df, dependent_var, model) {
+  
+  # Extract residuals and fitted values
+  residuals_df <- data.frame(
+    residuals    = residuals(model),
+    fitted_values = fitted(model)
+  )
+  
+  # Histogram of residuals
+  p1 <- ggplot(residuals_df, aes(x = residuals)) +
+    geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5) +
+    geom_density(alpha = 0.7) +
+    labs(
+      title = paste("Histogram of Residuals (", dependent_var, ")"),
+      x = "Residuals",
+      y = "Density"
+    ) +
+    theme_minimal()
+  print(p1)
+  
+  # Q-Q Plot of residuals
+  qqPlot(residuals(model), main = paste("Q-Q Plot of Residuals (", dependent_var, ")"))
+  
+  # Residuals vs Fitted Values
+  p2 <- ggplot(residuals_df, aes(x = fitted_values, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+    labs(
+      title = paste("Residuals vs Fitted Values (", dependent_var, ")"),
+      x = "Fitted Values",
+      y = "Residuals"
+    ) +
+    theme_minimal()
+  print(p2)
+}
+
+# Main loop: Fit each model and visualize diagnostics
+#for (dependent_var in c("rationality_scaled", "social_impact_scaled", "valence_scaled")) {
+  
+  # Fit model
+#  result <- fit_multilevel_model(df, dependent_var)
+  
+  # Residual diagnostics
+#  analyze_residuals(df, dependent_var, result)
+#}
+
+# 1) Fit the multilevel model for valence
+fit_multilevel_model(df, "valence_scaled")
+
+# 2) Perform residual diagnostics
+result <- fit_multilevel_model(df, "valence_scaled")
+analyze_residuals(df, "valence_scaled", result)
+```
