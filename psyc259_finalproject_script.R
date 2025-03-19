@@ -103,7 +103,7 @@ analyze_residuals <- function(df, dependent_var, model) {
 }
 
 # Main loop: Fit each model and visualize diagnostics
-for (dependent_var in c("rationality", "social_impact", "valence")) {
+for (dependent_var in c("rationality_scaled", "social_impact_scaled", "valence_scaled")) {
   
   # Fit model
   result <- fit_multilevel_model(df, dependent_var)
